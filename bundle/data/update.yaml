@@ -1,0 +1,88 @@
+heat_template_version: 2013-05-23
+description: This template configures the resources required to provide OAI instance
+
+parameters:
+
+  # the MME IP Address - to be supplied by EPCaaS
+  mme_pgwc_sgwc_input:
+    type: string
+    label: mme pgwc sgwc IP
+    description: mme pgwc sgwc IP
+    default: set_at_provisioning_time
+
+  # EURE specific settings
+  public_net:
+    type: string
+    description: >
+      ID of public network
+    default: 37266eb6-aaae-4752-a423-2c6fed328a39
+
+  public_subnet:
+    type: string
+    description: >
+      ID of public subnet
+    default: c31a11f0-d5b0-49da-a04e-ac7bd7cd56c2
+
+  fixed_ip:
+    type: string
+    description: >
+      IP of the virtual machine
+    default: 193.55.112.80
+
+  mac_add:
+    type: string
+    description: >
+      MAC ADDRESS of the virtual machine
+    default: fa:16:3e:72:e8:1d
+
+resources:
+
+  config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: mme_pgwc_sgwc
+      outputs:
+      - name: result
+      config: |
+        #!/bin/sh -x
+        echo "Writing to /tmp/$bar"
+        touch /tmp/provision
+        echo 'ok' > /tmp/provision
+        echo 'ok again' >> /tmp/provision
+        echo $mme_pgwc_sgwc >> /tmp/provision
+        cd /home/ubuntu/openair4G/cmake_targets/lte_build_oai/build
+        MY_IP=`ip addr show dev eth0 | awk -F'[ /]*' '/inet /{print $3"/"$4}'`
+        sed -i 's#MY_IP_ADDRESS_REPLACE#'$MY_IP'#g' ../../../targets/PROJECTS/GENERIC-LTE-EPC/CONF/enb.band7.tm1.usrpb210.conf
+        sed -i 's#MME_IP_ADDRESS_REPLACE#'$mme_pgwc_sgwc'#g' ../../../targets/PROJECTS/GENERIC-LTE-EPC/CONF/enb.band7.tm1.usrpb210.conf
+        ./lte-softmodem -O ../../../targets/PROJECTS/GENERIC-LTE-EPC/CONF/enb.band7.tm1.usrpb210.conf -S > /tmp/lte-softmodem.log 2>&1 &
+        # echo "Output to stderr" 1>&2
+
+  deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: config
+      server:
+        get_resource: server
+      input_values:
+        mme_pgwc_sgwc: {get_param: mme_pgwc_sgwc_input}
+
+  server:
+    type: OS::Nova::Server
+    properties:
+      key_name: mcn-key
+      image: enb-usrp-static-ip-software-config
+      flavor: m1.large
+      networks:
+        - port: { get_resource: my_port }
+      user_data_format: SOFTWARE_CONFIG
+
+  my_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: {get_param: public_net}
+      mac_address: {get_param: mac_add}
+      fixed_ips: [{"subnet_id": {get_param: public_subnet}, "ip_address": {get_param: fixed_ip}}]
+

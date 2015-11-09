@@ -1,0 +1,56 @@
+heat_template_version: 2013-05-23
+description: ENB
+
+parameters:
+  mme_ip:
+    type: string
+    label: MME Instance
+    description: MME Instance to be used
+
+  private_mgmt_net:
+    type: string
+    description: >
+      ID of private network mgmt
+    default: 159ec24b-4ddd-47d3-831f-9e6fde9bbcf5
+
+  public_net:
+    type: string
+    description: >
+      ID of public network
+    default: fde9f17b-eb51-4d4b-a474-deb583d03d86
+
+resources:
+  enb:
+    type: OS::Nova::Server
+    properties:
+      flavor: m1.large
+      image: ENB-OAI
+      key_name: edmo-bern
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash -v
+            cd /home/ubuntu/openair4G/cmake_targets/lte_build_oai/build
+
+            MY_IP=`ip addr show dev eth0 | awk -F'[ /]*' '/inet /{print $3"/"$4}'`
+            sed -i 's#MY_IP_ADDRESS_REPLACE#'$MY_IP'#g' ../../../targets/PROJECTS/GENERIC-LTE-EPC/CONF/enb.band7.tm1.exmimo2.openEPC.conf
+
+            sed -i 's#MME_IP_ADDRESS_REPLACE#$MME_IP#g' ../../../targets/PROJECTS/GENERIC-LTE-EPC/CONF/enb.band7.tm1.exmimo2.openEPC.conf
+
+            ./lte-softmodem -O ../../../targets/PROJECTS/GENERIC-LTE-EPC/CONF/enb.band7.tm1.exmimo2.openEPC.conf -S
+
+          params:
+            $MME_IP: { get_param: mme_ip }
+      networks:
+        - port: { get_resource: my_port }
+
+  my_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: {get_param: private_mgmt_net}
+
+  my_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: public_net}
+      port_id: { get_resource:  my_port }
